@@ -1,6 +1,8 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, num};
 
-use halo2_proofs::{arithmetic::FieldExt, circuit::*, plonk::*, poly::Rotation};
+use halo2_proofs::{
+    arithmetic::FieldExt, circuit::*, pasta::group::ff::PrimeFieldBits, plonk::*, poly::Rotation,
+};
 
 mod range_check_lookup;
 use range_check_lookup::table::RangeCheckTable;
@@ -75,7 +77,14 @@ impl<F: FieldExt, const RANGE: usize> DecomposeConfig<F, RANGE> {
             let lookup_num_bits = (RANGE as f64).log2().floor() as usize;
             let chunk = z_i - z_i_next * F::from(1 << lookup_num_bits);
 
-            vec![(q_decompose * chunk, table.value)]
+            // When q_decompose = 0, not q_decompose = 1.
+            // In other words, the constraint SHOULD match even when
+            // q_decompose selector is NOT set.
+            let not_q_decompose = Expression::Constant(F::one()) - q_decompose.clone();
+            let default_chunk = Expression::Constant(F::zero());
+            let expr = q_decompose * chunk + not_q_decompose * default_chunk;
+
+            vec![(expr, table.value)]
         });
 
         Self {
@@ -86,7 +95,61 @@ impl<F: FieldExt, const RANGE: usize> DecomposeConfig<F, RANGE> {
         }
     }
 
-    pub fn assign(layouter: impl Layouter<F>) -> Result<(), Error> {
-        todo!()
+    pub fn assign(
+        &self,
+        mut layouter: impl Layouter<F>,
+        value: Value<F>,
+        num_bits: usize,
+    ) -> Result<(), Error> {
+        layouter.assign_region(
+            || "Decompose value",
+            |mut region| {
+                let mut offset = 0;
+                // 1. Copy in the witnessed `value`
+                let z_0 = region.assign_advice(
+                    || "Initialize running sum",
+                    self.running_sum,
+                    offset,
+                    || value,
+                )?;
+                offset += 1;
+
+                // 2. Compute the running_sum values { z_0, z_1, ..., z_C}
+
+                // 3. Assign the running sum values
+                // 4. Enable the selector on each row of the running sum
+                // 5. Constrain the final running_sum `z_C` to be 0.
+                todo!()
+            },
+        )
     }
+}
+
+// Function to compute the interstitial running sum values {z_1, z_2, ..., z_C}
+fn compute_running_sum<F: FieldExt + PrimeFieldBits, const LOOKUP_NUM_BITS: usize>(
+    value: Assigned<F>,
+    num_bits: usize,
+) -> Vec<Assigned<F>> {
+    let mut running_sum = vec![];
+    let mut z = value;
+
+    // Get the little-bit endian representation of `value`
+    let value: Vec<_> = value
+        .evaluate()
+        .to_le_bits()
+        .iter()
+        .by_vals()
+        .take(num_bits)
+        .collect();
+
+    for chunk in value.chunks(LOOKUP_NUM_BITS) {
+        let chunk = Assigned::from(F::from(lebs2ip(chunk)));
+
+        // z_{i + 1} = (z_i - c_i) * 2^{-K};
+        z = (z - chunk) * Assigned::from(F::from(1 << LOOKUP_NUM_BITS)).invert();
+        running_sum.push(z);
+    }
+    assert_eq!(running_sum.len(), num_bits / LOOKUP_NUM_BITS);
+
+    running_sum
 }
