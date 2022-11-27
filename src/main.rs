@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, num};
+use std::marker::PhantomData;
 
 use halo2_proofs::{
     arithmetic::FieldExt, circuit::*, pasta::group::ff::PrimeFieldBits, plonk::*, poly::Rotation,

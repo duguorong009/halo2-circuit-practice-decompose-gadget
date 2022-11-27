@@ -6,4 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+ff = "0.12.1"
 halo2_proofs = { version = "0.2.0", features = ["dev-graph"] }
+plotters = {version =  "0.3.4", optional = true }
+tabbycat = { version = "0.1", optional = true, features = ["attributes"] }
