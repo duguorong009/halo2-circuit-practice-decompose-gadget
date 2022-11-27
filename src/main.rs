@@ -57,18 +57,25 @@ pub struct DecomposeConfig<F: FieldExt, const RANGE: usize> {
 
 impl<F: FieldExt, const RANGE: usize> DecomposeConfig<F, RANGE> {
     pub fn configure(meta: &mut ConstraintSystem<F>, running_sum: Column<Advice>) -> Self {
+        // Create the needed columns and internal configs
         let running_sum = running_sum;
         let q_decompose = meta.complex_selector();
         let table = RangeCheckTable::<F, RANGE>::configure(meta);
 
         // Range-check lookup
-        // Check that a value `running_sum` is contained within a lookup table of values 0..RANGE (K-bit range)
+        // Range-constrain eatch K-bit chunk `c_i = z_i - z_{i + 1} * 2^K`, derived from running_sum
         meta.lookup(|meta| {
             let q_decompose = meta.query_selector(q_decompose);
 
-            let running_sum = meta.query_advice(running_sum, Rotation::cur());
+            // Derive the chunk c_i = z_i - z_{i + 1} * 2 ^ K from the witnessed z_i, z_{i + 1}
+            let z_i = meta.query_advice(running_sum, Rotation::cur());
+            let z_i_next = meta.query_advice(running_sum, Rotation::next());
 
-            vec![(q_decompose * running_sum, table.value)]
+            // c_i = z_i - z_{i + 1} * 2 ^ K
+            let lookup_num_bits = (RANGE as f64).log2().floor() as usize;
+            let chunk = z_i - z_i_next * F::from(1 << lookup_num_bits);
+
+            vec![(q_decompose * chunk, table.value)]
         });
 
         Self {
