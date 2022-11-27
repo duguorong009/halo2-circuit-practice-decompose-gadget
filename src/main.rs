@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use ff::PrimeFieldBits;
+use halo2_gadgets::utilities::lebs2ip;
 use halo2_proofs::{arithmetic::FieldExt, circuit::*, plonk::*, poly::Rotation};
 
 mod range_check_lookup;
@@ -56,7 +57,7 @@ pub struct DecomposeConfig<F: FieldExt, const RANGE: usize> {
     _marker: PhantomData<F>,
 }
 
-impl<F: FieldExt, const RANGE: usize> DecomposeConfig<F, RANGE> {
+impl<F: FieldExt + PrimeFieldBits, const RANGE: usize> DecomposeConfig<F, RANGE> {
     pub fn configure(meta: &mut ConstraintSystem<F>, running_sum: Column<Advice>) -> Self {
         // Create the needed columns and internal configs
         let running_sum = running_sum;

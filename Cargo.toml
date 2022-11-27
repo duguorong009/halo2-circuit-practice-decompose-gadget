@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 ff = "0.12.1"
+halo2_gadgets = "0.2.0"
 halo2_proofs = { version = "0.2.0", features = ["dev-graph"] }
 plotters = {version =  "0.3.4", optional = true }
 tabbycat = { version = "0.1", optional = true, features = ["attributes"] }
