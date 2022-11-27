@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use halo2_proofs::{arithmetic::FieldExt, circuit::*, plonk::*};
+use halo2_proofs::{arithmetic::FieldExt, circuit::*, plonk::*, poly::Rotation};
 
 mod range_check_lookup;
 use range_check_lookup::table::RangeCheckTable;
@@ -61,7 +61,15 @@ impl<F: FieldExt, const RANGE: usize> DecomposeConfig<F, RANGE> {
         let q_decompose = meta.complex_selector();
         let table = RangeCheckTable::<F, RANGE>::configure(meta);
 
-        // Configure the gate/constraints
+        // Range-check lookup
+        // Check that a value `running_sum` is contained within a lookup table of values 0..RANGE (K-bit range)
+        meta.lookup(|meta| {
+            let q_decompose = meta.query_selector(q_decompose);
+
+            let running_sum = meta.query_advice(running_sum, Rotation::cur());
+
+            vec![(q_decompose * running_sum, table.value)]
+        });
 
         Self {
             running_sum,
