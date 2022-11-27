@@ -70,4 +70,8 @@ impl<F: FieldExt, const RANGE: usize> DecomposeConfig<F, RANGE> {
             _marker: PhantomData::default(),
         }
     }
+
+    pub fn assign(layouter: impl Layouter<F>) -> Result<(), Error> {
+        todo!()
+    }
 }
