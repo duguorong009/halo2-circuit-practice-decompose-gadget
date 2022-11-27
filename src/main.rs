@@ -1,8 +1,7 @@
 use std::marker::PhantomData;
 
-use halo2_proofs::{
-    arithmetic::FieldExt, circuit::*, pasta::group::ff::PrimeFieldBits, plonk::*, poly::Rotation,
-};
+use ff::PrimeFieldBits;
+use halo2_proofs::{arithmetic::FieldExt, circuit::*, plonk::*, poly::Rotation};
 
 mod range_check_lookup;
 use range_check_lookup::table::RangeCheckTable;
@@ -64,6 +63,13 @@ impl<F: FieldExt, const RANGE: usize> DecomposeConfig<F, RANGE> {
         let q_decompose = meta.complex_selector();
         let table = RangeCheckTable::<F, RANGE>::configure(meta);
 
+        // We need a fixed column for the `constrain_constant` step used to enforce `z_C == 0`
+        // similarly, we need to enable `running_sum` to participate in the permutation argument.
+        let constant = meta.fixed_column();
+        meta.enable_constant(constant);
+
+        meta.enable_equality(running_sum);
+
         // Range-check lookup
         // Range-constrain eatch K-bit chunk `c_i = z_i - z_{i + 1} * 2^K`, derived from running_sum
         meta.lookup(|meta| {
@@ -74,7 +80,7 @@ impl<F: FieldExt, const RANGE: usize> DecomposeConfig<F, RANGE> {
             let z_i_next = meta.query_advice(running_sum, Rotation::next());
 
             // c_i = z_i - z_{i + 1} * 2 ^ K
-            let lookup_num_bits = (RANGE as f64).log2().floor() as usize;
+            let lookup_num_bits = (RANGE as f64).log2().ceil() as usize;
             let chunk = z_i - z_i_next * F::from(1 << lookup_num_bits);
 
             // When q_decompose = 0, not q_decompose = 1.
@@ -98,27 +104,48 @@ impl<F: FieldExt, const RANGE: usize> DecomposeConfig<F, RANGE> {
     pub fn assign(
         &self,
         mut layouter: impl Layouter<F>,
-        value: Value<F>,
+        value: AssignedCell<Assigned<F>, F>,
         num_bits: usize,
     ) -> Result<(), Error> {
         layouter.assign_region(
             || "Decompose value",
             |mut region| {
+                let lookup_num_bits = (RANGE as f64).log2().ceil() as usize;
+                assert_eq!(num_bits % lookup_num_bits, 0);
+
                 let mut offset = 0;
                 // 1. Copy in the witnessed `value`
-                let z_0 = region.assign_advice(
-                    || "Initialize running sum",
+                let mut z = value.copy_advice(
+                    || "Copy value to initialize running sum",
+                    &mut region,
                     self.running_sum,
                     offset,
-                    || value,
                 )?;
                 offset += 1;
 
-                // 2. Compute the running_sum values { z_0, z_1, ..., z_C}
+                // 2. Compute the running_sum values {z_1, ..., z_C}
+                let running_sum = value
+                    .value()
+                    .map(|&v| compute_running_sum(v, num_bits, lookup_num_bits))
+                    .transpose_vec(num_bits / lookup_num_bits);
 
                 // 3. Assign the running sum values
+                for z_i in running_sum.into_iter() {
+                    z = region.assign_advice(
+                        || format!("assign z_{}", offset),
+                        self.running_sum,
+                        offset,
+                        || z_i,
+                    )?;
+                    offset += 1;
+                }
                 // 4. Enable the selector on each row of the running sum
+                for row in (0..(num_bits / lookup_num_bits)) {
+                    self.q_decompose.enable(&mut region, row)?;
+                }
                 // 5. Constrain the final running_sum `z_C` to be 0.
+                region.constrain_constant(z.cell(), F::zero());
+
                 todo!()
             },
         )
@@ -126,9 +153,10 @@ impl<F: FieldExt, const RANGE: usize> DecomposeConfig<F, RANGE> {
 }
 
 // Function to compute the interstitial running sum values {z_1, z_2, ..., z_C}
-fn compute_running_sum<F: FieldExt + PrimeFieldBits, const LOOKUP_NUM_BITS: usize>(
+fn compute_running_sum<F: FieldExt + PrimeFieldBits>(
     value: Assigned<F>,
     num_bits: usize,
+    lookup_num_bits: usize,
 ) -> Vec<Assigned<F>> {
     let mut running_sum = vec![];
     let mut z = value;
@@ -142,14 +170,14 @@ fn compute_running_sum<F: FieldExt + PrimeFieldBits, const LOOKUP_NUM_BITS: usiz
         .take(num_bits)
         .collect();
 
-    for chunk in value.chunks(LOOKUP_NUM_BITS) {
+    for chunk in value.chunks(lookup_num_bits) {
         let chunk = Assigned::from(F::from(lebs2ip(chunk)));
 
         // z_{i + 1} = (z_i - c_i) * 2^{-K};
-        z = (z - chunk) * Assigned::from(F::from(1 << LOOKUP_NUM_BITS)).invert();
+        z = (z - chunk) * Assigned::from(F::from(1 << lookup_num_bits)).invert();
         running_sum.push(z);
     }
-    assert_eq!(running_sum.len(), num_bits / LOOKUP_NUM_BITS);
+    assert_eq!(running_sum.len(), num_bits / lookup_num_bits);
 
     running_sum
 }
