@@ -359,6 +359,7 @@ dependencies = [
  "halo2_gadgets",
  "halo2_proofs",
  "plotters",
+ "rand",
  "tabbycat",
 ]
 

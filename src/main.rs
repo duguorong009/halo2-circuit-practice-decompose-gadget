@@ -49,7 +49,7 @@ fn main() {
 /// (even non-multiples of K)
 ///
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DecomposeConfig<F: FieldExt, const RANGE: usize> {
     running_sum: Column<Advice>,
     q_decompose: Selector,
@@ -181,4 +181,86 @@ fn compute_running_sum<F: FieldExt + PrimeFieldBits>(
     assert_eq!(running_sum.len(), num_bits / lookup_num_bits);
 
     running_sum
+}
+
+#[cfg(test)]
+mod tests {
+    use halo2_proofs::{
+        circuit::floor_planner::V1, dev::MockProver, pasta::Fp, poly::multiopen::ProverQuery,
+    };
+    use rand;
+
+    use super::*;
+
+    #[derive(Debug, Default)]
+    struct MyCircuit<F: FieldExt, const NUM_BITS: usize, const RANGE: usize> {
+        value: Value<Assigned<F>>,
+        num_bits: usize, // num_bits is a multiple of NUM_BITS
+    }
+
+    impl<F: FieldExt + PrimeFieldBits, const NUM_BITS: usize, const RANGE: usize> Circuit<F>
+        for MyCircuit<F, NUM_BITS, RANGE>
+    {
+        type Config = DecomposeConfig<F, RANGE>;
+        type FloorPlanner = V1;
+
+        fn without_witnesses(&self) -> Self {
+            // Self::default()
+            Self {
+                value: Value::unknown(),
+                num_bits: self.num_bits,
+            }
+        }
+
+        fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+            // // Fixed column for constants
+            // let constants = meta.fixed_column();
+            // meta.enable_constant(constants);
+
+            let running_sum = meta.advice_column();
+            DecomposeConfig::configure(meta, running_sum)
+        }
+
+        fn synthesize(
+            &self,
+            config: Self::Config,
+            mut layouter: impl Layouter<F>,
+        ) -> Result<(), Error> {
+            config.table.load(&mut layouter)?;
+
+            // Witness the value somewhere
+            let value = layouter.assign_region(
+                || "witness value",
+                |mut region| {
+                    region.assign_advice(|| "Witness value", config.running_sum, 0, || self.value)
+                },
+            )?;
+            config.assign(
+                layouter.namespace(|| "Decompose value"),
+                value,
+                self.num_bits,
+            )?;
+
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_decompose_1() {
+        let k = 9;
+        const NUM_BITS: usize = 8;
+        const RANGE: usize = 256; // 8-bit value
+
+        // Random u64 vaue
+        let value: u64 = rand::random();
+        let value = Value::known(Assigned::from(Fp::from(value)));
+
+        let circuit = MyCircuit::<Fp, NUM_BITS, RANGE> {
+            value,
+            num_bits: 64,
+        };
+
+        let prover = MockProver::run(k, &circuit, vec![]).unwrap();
+        prover.assert_satisfied();
+    }
 }
