@@ -265,4 +265,23 @@ mod tests {
         let prover = MockProver::run(k, &circuit, vec![]).unwrap();
         prover.assert_satisfied();
     }
+
+    #[test]
+    fn print_decompose_1() {
+        use plotters::prelude::*;
+
+        let root = BitMapBackend::new("decompose-layout.png", (1024, 3096)).into_drawing_area();
+        root.fill(&WHITE).unwrap();
+        let root = root
+            .titled("Decompose Range Check Layout", ("sans-serif", 60))
+            .unwrap();
+
+        let circuit = MyCircuit::<Fp, 8, 256> {
+            value: Value::unknown(),
+            num_bits: 64,
+        };
+        halo2_proofs::dev::CircuitLayout::default()
+            .render(9, &circuit, &root)
+            .unwrap();
+    }
 }
