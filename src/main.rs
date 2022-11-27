@@ -1,7 +1,6 @@
 use std::marker::PhantomData;
 
 use ff::PrimeFieldBits;
-use halo2_gadgets::utilities::lebs2ip;
 use halo2_proofs::{arithmetic::FieldExt, circuit::*, plonk::*, poly::Rotation};
 
 mod range_check_lookup;
@@ -141,13 +140,11 @@ impl<F: FieldExt + PrimeFieldBits, const RANGE: usize> DecomposeConfig<F, RANGE>
                     offset += 1;
                 }
                 // 4. Enable the selector on each row of the running sum
-                for row in (0..(num_bits / lookup_num_bits)) {
+                for row in 0..(num_bits / lookup_num_bits) {
                     self.q_decompose.enable(&mut region, row)?;
                 }
                 // 5. Constrain the final running_sum `z_C` to be 0.
-                region.constrain_constant(z.cell(), F::zero());
-
-                todo!()
+                region.constrain_constant(z.cell(), F::zero())
             },
         )
     }
@@ -183,11 +180,16 @@ fn compute_running_sum<F: FieldExt + PrimeFieldBits>(
     running_sum
 }
 
+pub fn lebs2ip(bits: &[bool]) -> u64 {
+    // assert!(L <= 64);
+    bits.iter()
+        .enumerate()
+        .fold(0u64, |acc, (i, b)| acc + if *b { 1 << i } else { 0 })
+}
+
 #[cfg(test)]
 mod tests {
-    use halo2_proofs::{
-        circuit::floor_planner::V1, dev::MockProver, pasta::Fp, poly::multiopen::ProverQuery,
-    };
+    use halo2_proofs::{circuit::floor_planner::V1, dev::MockProver, pasta::Fp};
     use rand;
 
     use super::*;
